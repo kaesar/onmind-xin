@@ -1,0 +1,19 @@
+{
+  "name": "onmind-xin",
+  "version": "0.1.0",
+  "description": "OnMind-XIN — eXpress Inbox / Sink, emulador Amazon SES (API + SMTP) compañero de OnMind-XID",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "bun src/dev.js",
+    "start": "bun src/dev.js",
+    "smoke": "bun scripts/smoke.js",
+    "test": "bun scripts/smoke.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.637.0",
+    "hono": "^4.7.0",
+    "mailparser": "^3.6.5",
+    "smtp-server": "^3.11.0"
+  }
+}

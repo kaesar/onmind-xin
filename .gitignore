@@ -1,0 +1,9 @@
+node_modules/
+bun.lock
+xusers.txt
+xclients.txt
+.dev.vars
+.env
+files/
+xemails.json*
+PLAN.md
