@@ -9,9 +9,13 @@ import { nowIso, ttl30d } from "./ids.js";
  *   full item serialized in `data` S + minimal flat indexes).
  */
 export function storageFromEnv(env = process.env) {
-  const mode = (env.XIN_STORAGE || (env.XIN_TABLE ? "dynamodb" : "json")).toLowerCase();
+  const raw = env.XIN_STORAGE || (env.XIN_TABLE ? "dynamodb" : "json");
+  const mode = String(raw).toLowerCase();
   if (mode === "dynamodb") return dynamoStorage(env);
-  return jsonStorage(env.XIN_JSON_PATH || "./xemails.json");
+  if (mode === "json") return jsonStorage(env.XIN_JSON_PATH || "./xemails.json");
+  // Fail loud: a typo (e.g. XIN_STORAGE=dynamo) must never silently sink
+  // production mail into an ephemeral local file.
+  throw new Error(`xin: unknown XIN_STORAGE=${JSON.stringify(raw)} (use "json" or "dynamodb")`);
 }
 
 function buildEntry(payload, messageId) {
@@ -32,6 +36,15 @@ function stripInternal(p) {
 
 // ---- JSON backend ----
 function jsonStorage(path) {
+  // Serialize read-modify-write: on concurrent two overlapping save would lose message.
+  // The chain is kept alive on failure; the failing save still rejects to its caller.
+  let chain = Promise.resolve();
+
+  function atomic(fn) {
+    const run = chain.then(fn);
+    chain = run.catch(() => {});
+    return run;
+  }
   async function readAll() {
     try {
       const raw = await readFile(path, "utf8");
@@ -49,11 +62,13 @@ function jsonStorage(path) {
   return {
     mode: "json",
     async save(payload, messageId) {
-      const all = await readAll();
-      const entry = buildEntry(payload, messageId);
-      all.push(entry);
-      await writeAll(all);
-      return entry;
+      return atomic(async () => {
+        const all = await readAll();
+        const entry = buildEntry(payload, messageId);
+        all.push(entry);
+        await writeAll(all);
+        return entry;
+      });
     },
     async list(limit = 50) {
       const all = await readAll();

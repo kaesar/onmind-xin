@@ -1,0 +1,13 @@
+{
+  "app": "node bin/app.js",
+  "context": {
+    "tablePrefix": "",
+    "xinEnv": "production",
+    "removalPolicy": "retain",
+    "deletionProtection": "true",
+    "pointInTimeRecovery": "true",
+    "terminationProtection": "false",
+    "corsOrigins": "",
+    "localEndpoint": ""
+  }
+}

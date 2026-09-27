@@ -28,6 +28,18 @@ function sesSimpleContent(content = {}) {
   };
 }
 
+function badRequest(message) {
+  const e = new Error(message);
+  e.status = 400;
+  throw e;
+}
+
+function emailTags(list, field) {
+  if (list == null) return [];
+  if (!Array.isArray(list)) badRequest(`${field} must be an array`);
+  return list.map((t) => `${t.Name}=${t.Value}`);
+}
+
 /** SESv2 SendEmail (JSON) -> canonical payload. Throws 400 when destination is missing. */
 export function parseSendEmail(body = {}) {
   const dest = body.Destination ?? {};
@@ -35,9 +47,7 @@ export function parseSendEmail(body = {}) {
   const cc = asArray(dest.CcAddresses ?? body.cc ?? []);
   const bcc = asArray(dest.BccAddresses ?? body.bcc ?? []);
   if (to.length + cc.length + bcc.length === 0) {
-    const e = new Error("Missing destination (Destination.ToAddresses)");
-    e.status = 400;
-    throw e;
+    badRequest("Missing destination (Destination.ToAddresses)");
   }
   const simple = sesSimpleContent(body.Content);
   return normalizeRest({
@@ -49,7 +59,7 @@ export function parseSendEmail(body = {}) {
     html: simple.html ?? body.html ?? null,
     text: simple.text ?? body.text ?? null,
     replyTo: body.ReplyToAddresses?.[0] ?? body.replyTo ?? null,
-    tags: (body.EmailTags ?? []).map((t) => `${t.Name}=${t.Value}`),
+    tags: emailTags(body.EmailTags, "EmailTags"),
     metadata: body.metadata ?? {},
   });
 }
@@ -58,24 +68,30 @@ export function parseSendEmail(body = {}) {
 export function parseSendBulkEmail(body = {}) {
   const entries = body.BulkEmailEntries ?? [];
   if (!Array.isArray(entries) || entries.length === 0) {
-    const e = new Error("BulkEmailEntries is empty");
-    e.status = 400;
-    throw e;
+    badRequest("BulkEmailEntries is empty");
   }
   const defaultContent = sesSimpleContent(body.DefaultContent);
-  return entries.map((en) => {
+  const defaultTags = emailTags(body.DefaultEmailTags, "DefaultEmailTags");
+  return entries.map((en, i) => {
+    if (!en || typeof en !== "object") badRequest(`BulkEmailEntries[${i}] must be an object with Destination`);
     const dest = en.Destination ?? {};
+    const to = asArray(dest.ToAddresses ?? []);
+    const cc = asArray(dest.CcAddresses ?? []);
+    const bcc = asArray(dest.BccAddresses ?? []);
+    if (to.length + cc.length + bcc.length === 0) {
+      badRequest(`BulkEmailEntries[${i}] has no destination`);
+    }
     const replacement = sesSimpleContent(en.ReplacementEmailContent);
     return normalizeRest({
-      to: asArray(dest.ToAddresses ?? []),
-      cc: asArray(dest.CcAddresses ?? []),
-      bcc: asArray(dest.BccAddresses ?? []),
+      to,
+      cc,
+      bcc,
       from: body.FromEmailAddress ?? "",
       subject: replacement.subject || defaultContent.subject,
       html: replacement.html ?? defaultContent.html,
       text: replacement.text ?? defaultContent.text,
       replyTo: body.ReplyToAddresses?.[0] ?? null,
-      tags: (body.DefaultEmailTags ?? []).map((t) => `${t.Name}=${t.Value}`),
+      tags: defaultTags,
       metadata: {},
     });
   });

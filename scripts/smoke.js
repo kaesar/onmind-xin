@@ -182,6 +182,68 @@ let id2 = "";
   check("XIN_API_KEY: 403 without key, 200 with key, /health open", denied.status === 403 && allowed.status === 200 && healthOpen.status === 200);
 }
 
+// 9 concurrent saves must not lose messages (json read-modify-write is serialized)
+{
+  const before = (await (await req("/messages?limit=500")).json()).count;
+  const n = 20;
+  const results = await Promise.all(
+    Array.from({ length: n }, (_, i) =>
+      req("/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: `race${i}@example.com`, subject: "race" }),
+      })
+    )
+  );
+  const after = (await (await req("/messages?limit=500")).json()).count;
+  check(
+    "20 concurrent POST /send all stored",
+    results.every((r) => r.status === 200) && after === before + n,
+    `before=${before} after=${after}`
+  );
+}
+
+// 10 unknown storage mode fails loud (never silently sink prod mail to json)
+{
+  let threw = "";
+  try {
+    storageFromEnv({ XIN_STORAGE: "dynamo" });
+  } catch (e) {
+    threw = String(e.message || e);
+  }
+  check("XIN_STORAGE=bogus throws", /unknown XIN_STORAGE/.test(threw), threw.slice(0, 80));
+}
+
+// 11 malformed SES payloads -> 400 (not 500)
+{
+  const ses = (body) =>
+    req("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Amz-Target": "SimpleEmailServiceV2.SendBulkEmail" },
+      body: JSON.stringify(body),
+    });
+  const nullEntry = await ses({
+    FromEmailAddress: "n@example.com",
+    BulkEmailEntries: [null],
+  });
+  const badTags = await req("/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Amz-Target": "SimpleEmailServiceV2.SendEmail" },
+    body: JSON.stringify({
+      FromEmailAddress: "n@example.com",
+      Destination: { ToAddresses: ["a@example.com"] },
+      Content: { Simple: { Subject: { Data: "s" } } },
+      EmailTags: "nope",
+    }),
+  });
+  const noDest = await ses({ FromEmailAddress: "n@example.com", BulkEmailEntries: [{ Destination: {} }] });
+  check(
+    "bulk null entry / bad tags / entry without destination -> 400",
+    nullEntry.status === 400 && badTags.status === 400 && noDest.status === 400,
+    `${nullEntry.status}/${badTags.status}/${noDest.status}`
+  );
+}
+
 await rm(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

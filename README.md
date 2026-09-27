@@ -1,6 +1,6 @@
 # OnMind-XIN — eXpress Inbox / Sink (Amazon SES like)
 
-**OnMind-XID** is an eXpress Inbox. It sounds like Sink because it catches email messages for proofs of concept and labs.
+**OnMind-XIN** is an eXpress Inbox. It sounds like Sink because it catches email messages for proofs of concept and labs.
 
 Companion of [**OnMind-XID**](https://github.com/kaesar/onmind-xid) to use **OTP** by Email. Emulates the **Amazon SES API** for local development and stores every received message (avoid to use real **SES**).
 
@@ -47,6 +47,13 @@ XID_SMTP_PORT=1025
 ```
 
 OTPs sent by XID end up stored in XIN: `GET /messages` → `text` holds the code.
+
+### Via HTTP (works everywhere, incl. AWS Lambda)
+
+Set `XID_XIN_URL=http://localhost:8788` (plus `XID_XIN_API_KEY` if XIN requires
+one): XID then delivers OTPs with `POST /send` instead of SMTP — no SMTP
+listener needed on XID's side. Transport order in XID: Cloudflare `send_email`
+→ XIN HTTP (if `XID_XIN_URL` is set) → SMTP → console fallback (dev).
 
 ```mermaid
 sequenceDiagram
@@ -103,10 +110,13 @@ enabled on `ttl` and deploy `src/lambda.handler` (Node.js 24, Function URL or
 HTTP API Gateway v2). On Lambda there is only the HTTP API (no SMTP); use `XIN_TABLE` +
 `XIN_API_KEY` and protect it with API Key + Usage Plan.
 
+> Prefer IaC: `cdk/` deploys all of the above (table + Lambda + HTTP API) —
+> see `cdk/ARCHITECTURE.md`. The commands below are the manual equivalent.
+
 ```bash
 aws dynamodb create-table --table-name xemails \
   --attribute-definitions AttributeName=messageId,AttributeType=S \
-  --key-schema AttributeName=messageId,KeyType=RANGE \
+  --key-schema AttributeName=messageId,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST
 aws dynamodb update-time-to-live --table-name xemails \
   --time-to-live-specification Enabled=true,AttributeName=ttl

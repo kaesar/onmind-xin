@@ -20,6 +20,13 @@ export function createApp(env = process.env, storage = null) {
   app.use("/messages", apiKeyGuard(API_KEY));
   app.use("/", apiKeyGuard(API_KEY, ["POST"]));
 
+  // Consistent JSON 500s (Hono's default is plain text). Logged so failures
+  // are visible in CloudWatch (Lambda) and stderr (Bun); no stack leaks.
+  app.onError((err, c) => {
+    console.error("[OnMind-XIN] unhandled:", err);
+    return c.json({ message: "Internal error" }, 500);
+  });
+
   app.get("/health", (c) => c.json({ ok: true, env: env.XIN_ENV || "dev", storage: store.mode }));
 
   // SESv2 JSON emulation: POST / with X-Amz-Target SimpleEmailServiceV2.SendEmail|SendBulkEmail
