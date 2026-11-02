@@ -18,13 +18,13 @@ bun install
 bun run dev
 ```
 
-> The service listens on `localhost` on ports `8787` and `1025`, storing in `xemails.json`
+> The service listens on `localhost` on ports `8788` and `1025`, storing in `xemails.json`
 
 ```bash
-curl -s http://localhost:8787/health
-curl -s -X POST http://localhost:8787/send -H 'Content-Type: application/json' \
+curl -s http://localhost:8788/health
+curl -s -X POST http://localhost:8788/send -H 'Content-Type: application/json' \
   -d '{"to":"dest@example.com","from":"noreply@mydomain.com","subject":"Hello","text":"Hello"}'
-curl -s http://localhost:8787/messages?limit=5
+curl -s http://localhost:8788/messages?limit=5
 ```
 
 > `html` and `text` are both optional and independent: send either, both, or
@@ -33,7 +33,7 @@ curl -s http://localhost:8787/messages?limit=5
 > to the sender. Example with both:
 >
 > ```bash
-> curl -s -X POST http://localhost:8787/send -H 'Content-Type: application/json' \
+> curl -s -X POST http://localhost:8788/send -H 'Content-Type: application/json' \
 >   -d '{"to":"dest@example.com","from":"noreply@mydomain.com","subject":"Hello","html":"<h1>Hello</h1>","text":"Hello"}'
 > ```
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 ```js
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-const ses = new SESv2Client({ region: "us-east-1", endpoint: "http://localhost:8787" });
+const ses = new SESv2Client({ region: "us-east-1", endpoint: "http://localhost:8788" });
 const out = await ses.send(new SendEmailCommand({
   FromEmailAddress: "noreply@mydomain.com",
   Destination: { ToAddresses: ["dest@example.com"] },
@@ -86,14 +86,14 @@ console.log(out.MessageId); // == messageId in GET /messages/:id
 ```bash
 swaks --to dest@example.com --from noreply@mydomain.com \
   --server localhost --port 1025 --header-Subject "OTP" --body "code 123456"
-curl -s http://localhost:8787/messages?limit=1
+curl -s http://localhost:8788/messages?limit=1
 ```
 
 ## Environment variables
 
 | Var | Usage (default) |
 |---|---|
-| `PORT` | local http (`8787`) |
+| `PORT` | local http (`8788`) |
 | `XIN_SMTP_PORT` / `XIN_SMTP_HOST` | smtp (`1025` / `0.0.0.0`) |
 | `XIN_STORAGE` | `json` \| `dynamodb` (auto: `dynamodb` if `XIN_TABLE` is set) |
 | `XIN_JSON_PATH` | `./xemails.json` |
@@ -126,7 +126,7 @@ aws dynamodb update-time-to-live --table-name xemails \
 
 ```bash
 docker build -t onmind-xin .
-docker run -d --name xin -p 8787:8787 -p 1025:1025 -v /srv/xin:/data onmind-xin
+docker run -d --name xin -p 8788:8788 -p 1025:1025 -v /srv/xin:/data onmind-xin
 ```
 
 ## Tests
