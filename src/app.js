@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { newMessageId } from "./ids.js";
+import { registerInbox } from "./inbox.js";
 import { normalizeRest, parseSendBulkEmail, parseSendEmail } from "./normalize.js";
 import { storageFromEnv } from "./storage.js";
 
@@ -28,6 +29,14 @@ export function createApp(env = process.env, storage = null) {
   });
 
   app.get("/health", (c) => c.json({ ok: true, env: env.XIN_ENV || "dev", storage: store.mode }));
+
+  // Browser entry point: GET / is not part of the SES emulation (which uses POST /).
+  app.get("/", (c) => c.redirect("/inbox", 302));
+
+  // Server-rendered HTML inbox. Basic Auth instead of XIN_API_KEY: browsers
+  // cannot send the header, and XID OTP login would be circular (XID sends its
+  // OTP through XIN). See src/inbox.js.
+  registerInbox(app, { store, env });
 
   // SESv2 JSON emulation: POST / with X-Amz-Target SimpleEmailServiceV2.SendEmail|SendBulkEmail
   app.post("/", async (c) => {

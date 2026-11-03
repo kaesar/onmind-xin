@@ -11,6 +11,10 @@
 //   apiKey           OPTIONAL: XIN_API_KEY. Prefer the XIN_API_KEY env var so
 //                    the secret never hits argv/shell history. Empty = open
 //                    API (fine for Floci/throwaway; set it in prod).
+//   inboxUser        Basic Auth user for the HTML inbox (default xin)
+//   inboxPassword    OPTIONAL: XIN_INBOX_PASSWORD for /inbox. Prefer the
+//                    XIN_INBOX_PASSWORD env var. Empty in production disables
+//                    the inbox (503) so it never ships unprotected.
 //   removalPolicy    retain (default, prod) | destroy (throwaway/Floci envs)
 //   deletionProtection  true (default) | false — blocks even explicit
 //                    DeleteTable while the stack exists
@@ -86,6 +90,18 @@ class XinStack extends cdk.Stack {
       XIN_TABLE: emailsTable.tableName,
     }
     if (apiKey) fnEnv.XIN_API_KEY = apiKey
+
+    // HTML inbox (/inbox): Basic Auth, independent from XID (XID sends OTPs
+    // through XIN, so an XID login on XIN would be circular). Without a
+    // password the app fails closed in production (503); dev stays open.
+    const inboxPassword = process.env.XIN_INBOX_PASSWORD || String(ctx(this, 'inboxPassword', ''))
+    if (inboxPassword) {
+      fnEnv.XIN_INBOX_USER = String(ctx(this, 'inboxUser', 'xin'))
+      fnEnv.XIN_INBOX_PASSWORD = inboxPassword
+    }
+    if (String(ctx(this, 'inboxEnabled', 'true')).toLowerCase() === 'false') {
+      fnEnv.XIN_INBOX_ENABLED = 'false'
+    }
     const cors = ctxList(this, 'corsOrigins')
     if (cors.length) fnEnv.XIN_CORS_ORIGINS = cors.join(',')
 
@@ -149,6 +165,10 @@ class XinStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ApiId', {
       value: api.apiId,
       description: 'HTTP API id (for future custom-domain ApiMapping)',
+    })
+    new cdk.CfnOutput(this, 'InboxUrl', {
+      value: `${api.apiEndpoint.replace(/\/$/, '')}/inbox`,
+      description: 'HTML inbox (HTTP Basic Auth; set XIN_INBOX_PASSWORD)',
     })
     new cdk.CfnOutput(this, 'FunctionName', { value: xinFn.functionName })
     new cdk.CfnOutput(this, 'EmailsTable', { value: emailsTable.tableName })

@@ -244,6 +244,113 @@ let id2 = "";
   );
 }
 
+// 12 HTML inbox: list, detail, escaping, redirect (dev, open)
+{
+  const inbox = createApp({ XIN_ENV: "dev" }, store);
+  const sent = await inbox.request("/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to: "dest@example.com",
+      from: "noreply@example.com",
+      subject: "<script>alert(1)</script>",
+      html: "<h1>Hi</h1>",
+      text: "code 555000",
+    }),
+  });
+  const dangerousId = (await sent.json()).messageId;
+
+  // Body column: long plain text is truncated at 50 chars; html-only bodies
+  // fall back to a tag-stripped, whitespace-collapsed preview.
+  const longText = "A".repeat(60);
+  await inbox.request("/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: "dest@example.com", subject: "Long body", text: longText }),
+  });
+  await inbox.request("/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: "dest@example.com", subject: "HTML body", html: "<p>Hello   <b>HTML</b> world</p>" }),
+  });
+
+  const list = await inbox.request("/inbox");
+  const listHtml = await list.text();
+  check(
+    "GET /inbox 200 HTML (dev open)",
+    list.status === 200 && /text\/html/.test(list.headers.get("content-type") || ""),
+    String(list.status)
+  );
+  check(
+    "inbox lists messages and escapes subject",
+    listHtml.includes("Hello") &&
+      listHtml.includes("&lt;script&gt;alert(1)&lt;/script&gt;") &&
+      !listHtml.includes("<script>alert(1)</script>")
+  );
+  check("inbox has a Message column", listHtml.includes("<th>Message</th>"));
+  check(
+    "inbox Message column shows body and truncates at 50 chars",
+    listHtml.includes("code 555000") &&
+      listHtml.includes(`${"A".repeat(50)}…`) &&
+      !listHtml.includes(`${"A".repeat(51)}…`)
+  );
+  check(
+    "inbox Message column falls back to tag-stripped HTML",
+    listHtml.includes("Hello HTML world") && !listHtml.includes("<b>HTML</b>")
+  );
+  check("inbox warns when unprotected", listHtml.includes("XIN_INBOX_PASSWORD"));
+
+  const detail = await inbox.request(`/inbox/${dangerousId}`);
+  const detailHtml = await detail.text();
+  check(
+    "GET /inbox/:id shows text, sandboxed html and raw json",
+    detail.status === 200 &&
+      detailHtml.includes("code 555000") &&
+      detailHtml.includes("<iframe sandbox") &&
+      detailHtml.includes("Raw JSON")
+  );
+  check("GET /inbox/:id 404", (await inbox.request("/inbox/nope")).status === 404);
+  const root = await inbox.request("/");
+  check(
+    "GET / redirects to /inbox",
+    root.status === 302 && root.headers.get("location") === "/inbox",
+    `${root.status} ${root.headers.get("location")}`
+  );
+}
+
+// 13 HTML inbox: Basic Auth and fail-closed modes
+{
+  const auth = (user, pass) => "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
+  const ui = createApp({ XIN_ENV: "production", XIN_INBOX_USER: "ui", XIN_INBOX_PASSWORD: "s3cret" }, store);
+  const denied = await ui.request("/inbox");
+  const wrong = await ui.request("/inbox", { headers: { authorization: auth("ui", "nope") } });
+  const ok = await ui.request("/inbox", { headers: { authorization: auth("ui", "s3cret") } });
+  check(
+    "inbox Basic Auth: 401 missing / 401 wrong / 200 ok",
+    denied.status === 401 && wrong.status === 401 && ok.status === 200,
+    `${denied.status}/${wrong.status}/${ok.status}`
+  );
+  check(
+    "inbox sends Basic WWW-Authenticate challenge",
+    /^Basic realm="OnMind-XIN Inbox"/.test(denied.headers.get("www-authenticate") || ""),
+    String(denied.headers.get("www-authenticate"))
+  );
+
+  const bad = await createApp({ XIN_ENV: "production" }, store).request("/inbox");
+  check("inbox fails closed in production without password", bad.status === 503, String(bad.status));
+  const off = await createApp({ XIN_ENV: "dev", XIN_INBOX_ENABLED: "false" }, store).request("/inbox");
+  check("XIN_INBOX_ENABLED=false -> 404", off.status === 404, String(off.status));
+  const offDash = await createApp({ XIN_ENV: "dev", XIN_INBOX_ENABLED: "-" }, store).request("/inbox");
+  check("XIN_INBOX_ENABLED=- -> 404 (OnMind convention)", offDash.status === 404, String(offDash.status));
+  const onPlus = await createApp({ XIN_ENV: "dev", XIN_INBOX_ENABLED: "+" }, store).request("/inbox");
+  check("XIN_INBOX_ENABLED=+ -> 200 (OnMind convention)", onPlus.status === 200, String(onPlus.status));
+
+  const withKey = createApp({ XIN_ENV: "dev", XIN_API_KEY: "k123" }, store);
+  const page = await withKey.request("/inbox");
+  const api = await withKey.request("/messages");
+  check("XIN_API_KEY guards the API but not the HTML inbox", page.status === 200 && api.status === 403, `${page.status}/${api.status}`);
+}
+
 await rm(dir, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

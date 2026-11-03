@@ -3,6 +3,9 @@
   "context": {
     "tablePrefix": "",
     "xinEnv": "production",
+    "inboxUser": "xin",
+    "inboxPassword": "",
+    "inboxEnabled": "true",
     "removalPolicy": "retain",
     "deletionProtection": "true",
     "pointInTimeRecovery": "true",

@@ -4,9 +4,10 @@ Infrastructure as code for running XIN on AWS (MVP: two gateways, no shared
 domain — XID keeps its own `XidStack`/`XidHttpApi`):
 
 - **API Gateway (HTTP API v2)** — public front door for the SES emulation
-  (`POST /` with `X-Amz-Target`) and the readers (`POST /send`,
-  `GET /messages`). Auth (`x-api-key`) is enforced **by the app**, not the
-  gateway — same parity idea as XID.
+  (`POST /` with `X-Amz-Target`), the JSON readers (`POST /send`,
+  `GET /messages`) and the HTML inbox (`GET /inbox`). Auth (`x-api-key`) is
+  enforced **by the app**, not the gateway — same parity idea as XID. The HTML
+  inbox uses HTTP Basic Auth instead (browsers cannot send `x-api-key`).
 - **AWS Lambda** (`nodejs24.x`) — runs the same Hono app as the Bun container.
   Handler: `src/lambda.handler`, packaged as a **repo-root asset** (no bundler).
   HTTP API only (no SMTP on Lambda).
@@ -47,6 +48,9 @@ All config is **CDK context** (defaults in `cdk/cdk.json`, override with
 | Context              | Default        | Maps to / effect                                   |
 | -------------------- | -------------- | -------------------------------------------------- |
 | `apiKey`             | *(empty = open)* | `XIN_API_KEY` — prefer `export XIN_API_KEY=...` so the secret stays out of argv/history |
+| `inboxUser`          | `xin`          | `XIN_INBOX_USER` — Basic Auth user for `/inbox`    |
+| `inboxPassword`      | *(empty)*      | `XIN_INBOX_PASSWORD` — prefer the env var. Empty in production => `/inbox` returns 503 |
+| `inboxEnabled`       | `true`         | `false` => `XIN_INBOX_ENABLED=false` (404), the runtime var also accepts OnMind `+`/`-` |
 | `tablePrefix`        | `""`           | table name `{prefix}xemails` (multi-env accounts) |
 | `xinEnv`             | `production`   | `XIN_ENV`                                          |
 | `removalPolicy`      | `retain`       | `retain` \| `destroy` — see “DynamoDB in production” |
@@ -57,7 +61,8 @@ All config is **CDK context** (defaults in `cdk/cdk.json`, override with
 | `localEndpoint`      | `""`           | emulator URL → `AWS_ENDPOINT_URL` + `XIN_DYNAMO_ENDPOINT` inside the Lambda (Floci/LocalStack) |
 
 Lambda environment (set by the stack): `XIN_ENV`, `XIN_STORAGE=dynamodb`,
-`XIN_TABLE`, plus optional `XIN_API_KEY` / `XIN_CORS_ORIGINS`.
+`XIN_TABLE`, plus optional `XIN_API_KEY` / `XIN_CORS_ORIGINS`. When
+`inboxPassword` is set, `XIN_INBOX_USER` / `XIN_INBOX_PASSWORD` are added.
 
 ## DynamoDB in production
 
@@ -131,6 +136,10 @@ curl -fsS "$API/health"
 
 - `XIN_API_KEY` is optional at synth; set it for prod (lands in the Lambda
   environment — move to **Secrets Manager** when hardening for long-lived prod).
+- `/inbox` is protected by HTTP Basic Auth (`XIN_INBOX_PASSWORD`), not by XID:
+  XID sends its OTPs through XIN, so an XID login on XIN would be circular.
+  In production, a missing password disables the page (503, fail closed).
+  Prefer `export XIN_INBOX_PASSWORD=...` over `-c`, so it stays out of argv.
 - CORS is enforced by the app (same behaviour on both runtimes); the gateway
   adds no second policy to keep parity.
 - Asset packaging never ships `xemails.json` / `.env` / `.dev.vars`.
